@@ -1,0 +1,243 @@
+"""IMPORTS DE LA RED NEURONAL RESIDUAL ATTENTION U NET 3D"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+"""CLASE QUE DEFINE EL COMPORTAMIENTO RESIDUAL DE LAS CONVOLUCIONES"""
+class ResDoubleConv(nn.Module):
+    '''
+        Esta clase tiene dos comportamientos
+        1.-El camino principal:
+            Es el camino estandar de kernel 3 y padding 1 donde se hacen dos convoluciones
+            cada una se normaliza.
+            La unica diferencia es que la terminar la segunda convolucion
+            no se le aplica ReLU, ya que hacer que pierda informacion
+            matematica
+
+        2.-El camino corto:
+            Se hace una convolucion con un kernel de 1 y stride 1
+            esto para que se reduzca la dimensionalidad
+
+            
+        Despues de que la imagen haya pasado por los dos caminos, estos dos 
+        se sumaran y al resultado se le aplicara ReLU, esa sera la salida de 
+        la convolucion residual
+
+        Todo esto con el objetivo de que la imagen no pierda nitidez y 
+        ayude a mejorar el descenso del gradiente en las capas profundas de la red
+    '''
+
+
+    # Constructor
+    def __init__(self, in_channels, out_channels):
+        super(ResDoubleConv, self).__init__()
+
+        # Camino principal
+        self.main_path = nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.InstanceNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.InstanceNorm3d(out_channels)
+        )
+
+        # Se corrobora que los canales de entrada y de salida no sean iguales
+        if in_channels != out_channels:
+
+            # Camino corto
+            self.shortcut = nn.Sequential(
+                nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, bias=False),
+                nn.InstanceNorm3d(out_channels)
+            )
+        # Si los canales son iguales, el camino corto seria igual a nn.Identity
+        else:
+            self.shortcut = nn.Identity()
+
+        # Se aplica relu
+        self.relu = nn.ReLU(inplace=True)
+
+    # Funcion que hace la logica de sumar los caminos y aplicarle ReLU
+    def forward(self, x):
+        x_main = self.main_path(x)
+        x_shortcut = self.shortcut(x)
+        out = x_main + x_shortcut
+        return self.relu(out)
+
+"""CLASE QUE DEFINE EL COMPORTAMIENTO DE ATENCION DE LAS CONVOLUCIONES"""
+class AttentionBlock3d(nn.Module):
+    '''
+        Esta clase se centra en la atencion del modelo
+        Recibe 3 parametros (F_g, F_l, F_int)
+        F_g = 
+        F_l =
+        F_int =
+
+        1.-El camino W_g:
+            Este camino aplicara una convolucion con:
+                F_g como los canales de entrada
+                F_int como los canales de salia
+                kernel_size de 1 para 
+                stride de 1 para
+                paddig de 0 para 
+            Despues se normaliza los canales de salida
+
+        2.-El camino W_x:
+            Este camino aplica una convolucion con:
+                F_l como los canales de entrada
+                F_int como los canales de salida
+                kernel_size de 1 para
+                stride de 1 para
+                padding de 0 para
+
+        3.-El camino psi
+            Este camino aplicara una convolucion con:
+                F_int como los canales de entrada,
+                1 como los canales de salida
+                kernel_size de 1 para
+                stride de 1 para
+                padding de 0 para
+            Despues se aplica una normalizacion a:
+                1 porque
+                affine = True porque
+            Se aplica la funcion Sigmoide:
+                Esto aplasta los canales en 1
+    '''
+
+
+    # Constructor
+    def __init__(self,F_g, F_l,F_int):
+        super(AttentionBlock3d, self).__init__()
+
+        # Camino W_g
+        self.W_g = nn.Sequential(
+            nn.Conv3d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.InstanceNorm3d(F_int)
+        )
+
+        # Camino W_x
+        self.W_x = nn.Sequential(
+            nn.Conv3d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=False)
+        )
+
+        # Camino psi
+        self.psi = nn.Sequential(
+            nn.Conv3d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.InstanceNorm3d(1, affine=True),
+            nn.Sigmoid()
+        )
+        
+        # Se aplica ReLU
+        self.relu = nn.ReLU(inplace=True)
+
+    # Funcion que hace la logica de sumar los caminos g, x
+    #   para despues aplicarles ReLU
+    #   hacer el mapa de atencion aplicando el camino psi
+    #   se regresa x * el mapa de atencion
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi_out = self.relu(g1+x1)
+        attention_map = self.psi(psi_out)
+        return x * attention_map
+
+"""CLASE PRINCIPAL DE LA RED NEURONAL"""
+class r_a_unet3d(nn.Module):
+    '''
+        Esta clase es la que aplicara toda la logica de la convolucion 3d
+
+        Se hacen dos caminos, uno de baja y otro de subida
+
+        1.-El camino de bajada (se itera sobre las caracteristicas)
+            Se añade a la lista downs ls double convolucion residual:
+                Toma como canales de entrada, los pasados por el constructor
+                Saca como canales de salida las posiciones en el mapa de caracteristicas
+                    1.-16
+                    2.-32
+                    3.-64
+                    4.-128
+            Se actualizan los canales de entrada con los canales de salida de la convolucion anterior
+        
+        2.-El camino de subida (se itera sobre las caracteristicas en reversa)
+            Se añade a la lista ups una ConvTranspond3d con:
+                Canales de entrada = feature * 2 (si va en la feature 16 = 32)
+                Canales de salida = feature (16)
+                kernel_size = 2
+                stride = 2
+            Se añade a la lista de atenciones una AttentionBlock3d con:
+                F_g = feature
+                F_l = feature
+                F_int = feature // 2
+
+            Se añade a la lista ups 
+
+
+    
+    '''
+
+
+    # Constructor con parametros en predeterminado de 4 canales de entradas 4 canales de salida y con mapas de caracteristicas de [16,32,64,128]
+    def __init__(self, in_channels=4, out_channels=4, features=[16,32,64,128], deep_supervision=True):
+        super(r_a_unet3d, self).__init__()
+
+        self.deep_supervision = deep_supervision
+
+        self.ups = nn.ModuleList()
+        self.downs = nn.ModuleList()
+        self.attentions = nn.ModuleList()
+        self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
+
+        # Camino de bajada
+        for feature in features:
+            self.downs.append(ResDoubleConv(in_channels, feature))
+            in_channels=feature
+
+        for feature in reversed(features):
+            self.ups.append(nn.ConvTranspose3d(feature*2, feature, kernel_size=2, stride=2))
+            self.attentions.append(AttentionBlock3d(F_g=feature, F_l=feature, F_int=feature//2))
+            self.ups.append(ResDoubleConv(feature*2, feature))
+
+        self.bottleneck = ResDoubleConv(features[-1], features[-1]*2)
+        self.dropout = nn.Dropout3d(p=0.2)
+        self.final_conv = nn.Conv3d(features[0], out_channels, kernel_size=1)
+
+
+        if deep_supervision:
+            self.ds_heads = nn.ModuleList([
+                nn.Conv3d(f, out_channels, kernel_size=1) for f in list(reversed(features))[:-1]
+            ])
+
+    def forward(self, x):
+        skip_connections = []
+        for down in self.downs:
+            x = down(x); skip_connections.append(x); x = self.pool(x)
+        x = self.bottleneck(x)
+        x = self.dropout(x)
+        skip_connections = skip_connections[::-1]
+
+        ds_outputs = []
+        for idx in range(0, len(self.ups), 2):
+            x = self.ups[idx](x)
+            skip_connection = skip_connections[idx//2]
+            if x.shape != skip_connection.shape:
+                x = F.interpolate(x, size=skip_connection.shape[2:], mode='trilinear', align_corners=False)
+            skip_filtered = self.attentions[idx//2](g=x, x=skip_connection)
+            x = self.ups[idx+1](torch.cat((skip_filtered, x), dim=1))
+
+            level = idx // 2
+            if self.deep_supervision and self.training and level < len(self.ds_heads):
+                ds_outputs.append(self.ds_heads[level](x))
+
+        main_out = self.final_conv(x)
+        if self.deep_supervision and self.training:
+            return [main_out] + ds_outputs[::-1]
+        return main_out
+    
+"""PRUEBA DE EJECUCION"""
+if __name__ == '__main__':
+    x = torch.rand((1, 4, 128, 128, 128))
+    print(f'{x.shape}')
+    model = r_a_unet3d(in_channels=4, out_channels=3, features=[16,32,64,128])
+    model.eval()
+    with torch.no_grad():
+        predict = model(x)
+    print(f'{predict.shape}')
