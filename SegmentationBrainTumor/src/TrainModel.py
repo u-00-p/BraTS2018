@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from residual_attention_unet3d import r_a_unet3d
+from RADSUNet3D import RadsUNet3D
 
 from monai.transforms import (
     Compose,
@@ -160,7 +160,7 @@ def train_model(train_loader, val_loader):
     print(f'Dispositivo de entrenamiento {device}')
     use_amp = (device.type == 'cuda')
 
-    model = r_a_unet3d(in_channels=4, out_channels=3, features=[32,64,128,256]).to(device)
+    model = RadsUNet3D(in_channels=4, out_channels=3, features=[32,64,128,256]).to(device)
     dice_loss = DiceLoss(include_background=True, to_onehot_y=False, sigmoid=True, squared_pred=True)
     bce_loss  = nn.BCEWithLogitsLoss()
     def criterion(pred, target):
