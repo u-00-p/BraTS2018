@@ -1,0 +1,28 @@
+# ============================================================
+# Proyecto: BraTS2018 - Segmentación de Tumor Cerebral
+# Python: 3.10.x
+# GPU: NVIDIA RTX 5050 (sm_120, Blackwell) - requiere CUDA 13.x
+# ============================================================
+
+# --- PyTorch (nightly cu132 requerido para GPUs RTX 50xx Blackwell) ---
+# Si tu GPU es RTX 30xx/40xx puedes usar la versión estable:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+--extra-index-url https://download.pytorch.org/whl/nightly/cu132
+torch==2.14.0.dev20260628+cu132
+torchvision==0.29.0.dev20260628+cu132
+
+# --- Segmentación médica ---
+monai==1.6.0
+nibabel==5.4.2
+itk==5.4.6
+
+# --- Científico / Visualización ---
+numpy==2.2.6
+matplotlib==3.10.9
+pillow==12.2.0
+
+# --- App Web (AppWeb/src/app.py) ---
+gradio
+vedo
+trimesh
+pandas

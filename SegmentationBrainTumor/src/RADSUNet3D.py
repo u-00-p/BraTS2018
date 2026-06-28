@@ -57,7 +57,7 @@ class AttentionBlock3d(nn.Module):
 """CLASE PRINCIPAL DE LA RED NEURONAL"""
 class RadsUNet3D(nn.Module):
     def __init__(self, in_channels=4, out_channels=4, features=[16,32,64,128], deep_supervision=True):
-        super(r_a_unet3d, self).__init__()
+        super(RadsUNet3D, self).__init__()
         self.deep_supervision = deep_supervision
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
@@ -107,7 +107,7 @@ class RadsUNet3D(nn.Module):
 if __name__ == '__main__':
     x = torch.rand((1, 4, 128, 128, 128))
     print(f'{x.shape}')
-    model = r_a_unet3d(in_channels=4, out_channels=3, features=[16,32,64,128])
+    model = RadsUNet3D(in_channels=4, out_channels=3, features=[16,32,64,128])
     model.eval()
     with torch.no_grad():
         predict = model(x)
