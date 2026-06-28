@@ -22,14 +22,28 @@ import numpy as np
 
 from radsunet3d import r_a_unet3d
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')       
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+if device.type == 'cuda':
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
 model = r_a_unet3d(in_channels=4, out_channels=3, features=[32,64,128,256]).to(device)
-checkpoint = torch.load('./model/model.pth', map_location=device, weights_only=False)
-pesos = checkpoint['model_state_dict']
+checkpoint = torch.load('./model/model_brats.pth', map_location=device, weights_only=False)
+pesos = checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint
 model.load_state_dict(pesos)
 model.eval()
+model = torch.compile(model, mode='reduce-overhead')
 
-inferidor = SlidingWindowInferer(roi_size=(128,128,128), sw_batch_size=1, overlap=0.5)
+inferidor = SlidingWindowInferer(roi_size=(128,128,128), sw_batch_size=2, overlap=0.5)
+
+tf = Compose([
+    LoadImaged(keys=["flair", "t1ce", "t1", "t2"]),
+    EnsureChannelFirstd(keys=["flair", "t1ce", "t1", "t2"]),
+    ConcatItemsd(keys=["flair", "t1ce", "t1", "t2"], name='image', dim=0),
+    NormalizeIntensityd(keys='image', nonzero=True, channel_wise=True),
+])
 
 def predecir(files):
     if not files:
@@ -54,18 +68,9 @@ def predecir(files):
     if faltantes:
         raise gr.Error(f'Faltan modalidades: {faltantes}')
 
-    tf = Compose(
-        [
-            LoadImaged(keys=["flair", "t1ce", "t1", "t2"]),
-            EnsureChannelFirstd(keys=["flair", "t1ce", "t1", "t2"]),
-            ConcatItemsd(keys=["flair", "t1ce", "t1", "t2"], name='image', dim=0),
-            NormalizeIntensityd(keys='image', nonzero=True, channel_wise=True),
-        ]
-    )
-
     tensor = tf(data_dict)['image'].unsqueeze(0).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         logits = inferidor(inputs=tensor, network=model)
         resultado = (torch.sigmoid(logits) > 0.5).float()
     resultado_np = resultado.detach().cpu().numpy()

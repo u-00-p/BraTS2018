@@ -147,10 +147,12 @@ def deep_supervision_loss(outputs, target, base_criterion):
 """SE DEFINEN LOS LOADER DE LOS ARCHIVOS DE ENTRENAMIENTO Y VALIDACION"""
 def lotes(train_files, val_files, train_transforms, val_transforms):
     train_ds = Dataset(data=train_files, transform=train_transforms)
-    train_loader = DataLoader(train_ds, batch_size=1, shuffle=True, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=1, shuffle=True, num_workers=4, pin_memory=True,
+                              persistent_workers=True, prefetch_factor=2)
 
     val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = DataLoader(val_ds, batch_size=1, num_workers=2, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=1, num_workers=4, pin_memory=True,
+                            persistent_workers=True, prefetch_factor=2)
 
     return train_loader, val_loader
 
@@ -160,7 +162,13 @@ def train_model(train_loader, val_loader):
     print(f'Dispositivo de entrenamiento {device}')
     use_amp = (device.type == 'cuda')
 
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True      # optimiza kernels para tamaño fijo 128³
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
     model = RadsUNet3D(in_channels=4, out_channels=3, features=[32,64,128,256]).to(device)
+    model = torch.compile(model)
     dice_loss = DiceLoss(include_background=True, to_onehot_y=False, sigmoid=True, squared_pred=True)
     bce_loss  = nn.BCEWithLogitsLoss()
     def criterion(pred, target):
@@ -238,7 +246,12 @@ def train_model(train_loader, val_loader):
         if loss_promedio_val < mejor_loss_validacion:
             print(f"La perdida bajo de {mejor_loss_validacion:.4f} a {loss_promedio_val:.4f}")
             mejor_loss_validacion = loss_promedio_val
-            torch.save(model.state_dict(), save_dir)
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': mejor_loss_validacion,
+            }, save_dir)
             epocas_sin_mejora = 0
             print("Guardado exitosamente.")
         else:

@@ -5,29 +5,6 @@ import torch.nn.functional as F
 
 """CLASE QUE DEFINE EL COMPORTAMIENTO RESIDUAL DE LAS CONVOLUCIONES"""
 class ResDoubleConv(nn.Module):
-    '''
-        Esta clase tiene dos comportamientos
-        1.-El camino principal:
-            Es el camino estandar de kernel 3 y padding 1 donde se hacen dos convoluciones
-            cada una se normaliza.
-            La unica diferencia es que la terminar la segunda convolucion
-            no se le aplica ReLU, ya que hacer que pierda informacion
-            matematica
-
-        2.-El camino corto:
-            Se hace una convolucion con un kernel de 1 y stride 1
-            esto para que se reduzca la dimensionalidad
-
-            
-        Despues de que la imagen haya pasado por los dos caminos, estos dos 
-        se sumaran y al resultado se le aplicara ReLU, esa sera la salida de 
-        la convolucion residual
-
-        Todo esto con el objetivo de que la imagen no pierda nitidez y 
-        ayude a mejorar el descenso del gradiente en las capas profundas de la red
-    '''
-
-
     # Constructor
     def __init__(self, in_channels, out_channels):
         super(ResDoubleConv, self).__init__()
@@ -65,74 +42,26 @@ class ResDoubleConv(nn.Module):
 
 """CLASE QUE DEFINE EL COMPORTAMIENTO DE ATENCION DE LAS CONVOLUCIONES"""
 class AttentionBlock3d(nn.Module):
-    '''
-        Esta clase se centra en la atencion del modelo
-        Recibe 3 parametros (F_g, F_l, F_int)
-        F_g = 
-        F_l =
-        F_int =
-
-        1.-El camino W_g:
-            Este camino aplicara una convolucion con:
-                F_g como los canales de entrada
-                F_int como los canales de salia
-                kernel_size de 1 para 
-                stride de 1 para
-                paddig de 0 para 
-            Despues se normaliza los canales de salida
-
-        2.-El camino W_x:
-            Este camino aplica una convolucion con:
-                F_l como los canales de entrada
-                F_int como los canales de salida
-                kernel_size de 1 para
-                stride de 1 para
-                padding de 0 para
-
-        3.-El camino psi
-            Este camino aplicara una convolucion con:
-                F_int como los canales de entrada,
-                1 como los canales de salida
-                kernel_size de 1 para
-                stride de 1 para
-                padding de 0 para
-            Despues se aplica una normalizacion a:
-                1 porque
-                affine = True porque
-            Se aplica la funcion Sigmoide:
-                Esto aplasta los canales en 1
-    '''
-
-
-    # Constructor
     def __init__(self,F_g, F_l,F_int):
         super(AttentionBlock3d, self).__init__()
 
-        # Camino W_g
         self.W_g = nn.Sequential(
             nn.Conv3d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=False),
             nn.InstanceNorm3d(F_int)
         )
 
-        # Camino W_x
         self.W_x = nn.Sequential(
             nn.Conv3d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=False)
         )
 
-        # Camino psi
         self.psi = nn.Sequential(
             nn.Conv3d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=False),
             nn.InstanceNorm3d(1, affine=True),
             nn.Sigmoid()
         )
         
-        # Se aplica ReLU
         self.relu = nn.ReLU(inplace=True)
 
-    # Funcion que hace la logica de sumar los caminos g, x
-    #   para despues aplicarles ReLU
-    #   hacer el mapa de atencion aplicando el camino psi
-    #   se regresa x * el mapa de atencion
     def forward(self, g, x):
         g1 = self.W_g(g)
         x1 = self.W_x(x)
@@ -142,41 +71,7 @@ class AttentionBlock3d(nn.Module):
 
 """CLASE PRINCIPAL DE LA RED NEURONAL"""
 class r_a_unet3d(nn.Module):
-    '''
-        Esta clase es la que aplicara toda la logica de la convolucion 3d
-
-        Se hacen dos caminos, uno de baja y otro de subida
-
-        1.-El camino de bajada (se itera sobre las caracteristicas)
-            Se añade a la lista downs ls double convolucion residual:
-                Toma como canales de entrada, los pasados por el constructor
-                Saca como canales de salida las posiciones en el mapa de caracteristicas
-                    1.-16
-                    2.-32
-                    3.-64
-                    4.-128
-            Se actualizan los canales de entrada con los canales de salida de la convolucion anterior
-        
-        2.-El camino de subida (se itera sobre las caracteristicas en reversa)
-            Se añade a la lista ups una ConvTranspond3d con:
-                Canales de entrada = feature * 2 (si va en la feature 16 = 32)
-                Canales de salida = feature (16)
-                kernel_size = 2
-                stride = 2
-            Se añade a la lista de atenciones una AttentionBlock3d con:
-                F_g = feature
-                F_l = feature
-                F_int = feature // 2
-
-            Se añade a la lista ups 
-
-
-    
-    '''
-
-
-    # Constructor con parametros en predeterminado de 4 canales de entradas 4 canales de salida y con mapas de caracteristicas de [16,32,64,128]
-    def __init__(self, in_channels=4, out_channels=4, features=[16,32,64,128], deep_supervision=True):
+    def __init__(self, in_channels=4, out_channels=4, features=[32,64,128,256], deep_supervision=True):
         super(r_a_unet3d, self).__init__()
 
         self.deep_supervision = deep_supervision
