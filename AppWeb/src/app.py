@@ -34,7 +34,6 @@ checkpoint = torch.load('./model/model_brats.pth', map_location=device, weights_
 pesos = checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint
 model.load_state_dict(pesos)
 model.eval()
-model = torch.compile(model, mode='reduce-overhead')
 
 inferidor = SlidingWindowInferer(roi_size=(128,128,128), sw_batch_size=2, overlap=0.5)
 
