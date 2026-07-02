@@ -7,6 +7,11 @@ import torch.nn.functional as F
 class ResDoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResDoubleConv, self).__init__()
+
+        '''Los bloques residuales sirven por si la capa no aporta nada'''
+        '''La salida = x, por lo que la informacion no se pierde'''
+        '''ayuda al desvanecimiento del gradiente'''
+
         self.main_path = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.InstanceNorm3d(out_channels),
@@ -34,6 +39,12 @@ class ResDoubleConv(nn.Module):
 class AttentionBlock3d(nn.Module):
     def __init__(self,F_g, F_l,F_int):
         super(AttentionBlock3d, self).__init__()
+
+        '''Es un filtro aprendido que produce un mapa entre 0 y 1'''
+        '''Multiplica la skip connection por ese mapa'''
+        '''zonas del tumor = 1, fondo = 0'''
+        '''se queda con solo lo que importa'''
+
         self.W_g = nn.Sequential(
             nn.Conv3d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=False),
             nn.InstanceNorm3d(F_int)

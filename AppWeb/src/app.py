@@ -194,7 +194,7 @@ with gr.Blocks(title="Segmentador BraTS") as app:
     state_cerebro   = gr.State(value=None)  
 
     gr.Markdown("# Segmentador de tumores cerebrales — BraTS 2018")
-    gr.Markdown("**Paso 1:** sube los 4 archivos. **Paso 2:** pulsa *Predecir*. **Paso 3:** ajusta los controles.")
+    gr.Markdown("**1:** subir las 4 modalidades (t1, t1ce, t2, flair). **2:** *predecir*. **3:** configurar.")
 
     with gr.Row():
         with gr.Column(scale=1):

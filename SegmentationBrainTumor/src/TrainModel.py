@@ -96,21 +96,23 @@ def definir_rutas_diccionarios():
 def transformaciones():
     train_transforms = Compose(
         [
-            LoadImaged(keys=['image', 'label']),
-            EnsureChannelFirstd(keys='image'),
-            ConvertToMultiChannelBasedOnBratsClassesd(keys='label'),
+            LoadImaged(keys=['image', 'label']), #Carga las imagenes y apila las 4 modalidades
+            EnsureChannelFirstd(keys='image'), # Garantiza el formato con los canales primero
+            ConvertToMultiChannelBasedOnBratsClassesd(keys='label'), #Convierte la mascara en 3 canales correspondientes
             #Spacingd(keys=['image', 'label'], pixdim=(1,1,1)),
-            NormalizeIntensityd(keys='image', nonzero=True, channel_wise=True),
-            CropForegroundd(keys=['image', 'label'], source_key='image'),
+            NormalizeIntensityd(keys='image', nonzero=True, channel_wise=True), #Normaliza por canal e ignora el fondo=0
+            CropForegroundd(keys=['image', 'label'], source_key='image'), #Recorta la parte negra 
             #Resized(keys=['image', 'label'], spatial_size=[128,128,128], mode=('trilinear', 'nearest')),
-            SpatialPadd(keys=['image', 'label'], spatial_size=[128,128,128]),
-            RandCropByPosNegLabeld(keys=['image', 'label'], label_key='label',spatial_size=[128,128,128], pos=1, neg=1, num_samples=1,),
+            SpatialPadd(keys=['image', 'label'], spatial_size=[128,128,128]), #Rellena a 128^3 los que sean mas chicos 
+            RandCropByPosNegLabeld(keys=['image', 'label'], label_key='label',spatial_size=[128,128,128], pos=1, neg=1, num_samples=1,), #Recorta un cubo aleatorio y balance el fondo con el tumor
             #RandSpatialCropd(keys=['image', 'label'], roi_size=[128,128,128], random_size=False),
-            RandRotate90d(keys=['image', 'label'], prob=0.5, spatial_axes=(0, 1)),
-            RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=0),
+            
+            #Data augmention
+            RandRotate90d(keys=['image', 'label'], prob=0.5, spatial_axes=(0, 1)), #Rota aleatoriamente 90grados
+            RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=0), #Efecto espejo
             RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=1),
             RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=2),
-            RandGaussianNoised(keys=['image'], prob=0.2, mean=0.0, std=0.1),
+            RandGaussianNoised(keys=['image'], prob=0.2, mean=0.0, std=0.1), #Ruido
             #RandModalityDropoutd(keys=['image'], prob=0.5),
             ToTensord(keys=['image', 'label'])
         ]
@@ -132,16 +134,26 @@ def transformaciones():
 
 """SE DEFINE LA FUNCION PARA SABER QUE CRITERIO DE PESOS DAR"""
 def deep_supervision_loss(outputs, target, base_criterion):
+
+    '''Se predicen las 4 capas del encoder y decoder, dandole diferentes pesos a cada una despues de esto se pondera el error y la red aprende'''
+    '''Se ponderan las predicciones en las 4 resoluciones diferentes, dandole mas peso a la primera'''
     target = target.float()
     pesos = [1, 0.5, 0.25, 0.125][:len(outputs)]
-    pesos = [p / sum(pesos) for p in pesos]
+    pesos = [p / sum(pesos) for p in pesos] # Se normalizan los pesos para que juntos den 1
     total = 0.0
     for salida, peso in zip(outputs, pesos):
+
+        #Compara las dimensiones espaciales ingnorando el batch y los canales
         if salida.shape[2:] != target.shape[2:]:
+            #Si son distintas se encoge la verdad al tamano de la prediccion
             t = F.interpolate(target, size=salida.shape[2:], mode='nearest')
         else:
             t = target
+
+        #Se calcula el error de la salida, lo multiplica por si peso y lo suma al total
         total = total + peso * base_criterion(salida, t)
+    
+    #Suma ponderada de los 4 errores (de este numero aprender la red)
     return total
 
 """SE DEFINEN LOS LOADER DE LOS ARCHIVOS DE ENTRENAMIENTO Y VALIDACION"""
@@ -163,7 +175,7 @@ def train_model(train_loader, val_loader):
     use_amp = (device.type == 'cuda')
 
     if device.type == 'cuda':
-        torch.backends.cudnn.benchmark = True      # optimiza kernels para tamaño fijo 128³
+        torch.backends.cudnn.benchmark = True      # optimiza kernels para tamaño fijo 128^3
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
@@ -204,7 +216,6 @@ def train_model(train_loader, val_loader):
                 loss_normalizada = loss_real / pasos_acumulacion
 
             scaler.scale(loss_normalizada).backward()
-
 
             loss_entrenamiento_acumulada += loss_real.item()
 
