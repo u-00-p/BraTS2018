@@ -19,17 +19,11 @@ from monai.inferers import SlidingWindowInferer
 
 from radsunet3d import r_a_unet3d
 
-# -----------------------------------------------------------------------------
-# Configuración
-# -----------------------------------------------------------------------------
 MODELO_SEG = './model/model_brats.pth'
 MODELO_SUPERVIVENCIA = './model/survival_model.joblib'
 ROI = (128, 128, 128)
 MODALIDADES = ['flair', 't1ce', 't1', 't2']
 
-# Orden EXACTO de las 12 variables predictoras con las que se entrenó el .joblib
-# (columnas de 'new_features.csv' tras quitar Survival, File_name, Survival_time
-#  y ET_quadrant).
 FEATURES_MODELO = [
     "Age", "WT_quadrant", "TC_quadrant", "WT_volume", "NCR/NET_volume",
     "TC_volume", "ET_volume", "ED_volume", "Distance_mid_brain-tumor",
@@ -69,10 +63,6 @@ def cargar_modelo_supervivencia():
         _modelo_superv = joblib.load(MODELO_SUPERVIVENCIA)
     return _modelo_superv
 
-
-# -----------------------------------------------------------------------------
-# Segmentación
-# -----------------------------------------------------------------------------
 def predecir(files):
     if not files:
         raise gr.Error("Sube los 4 archivos .nii.gz")
@@ -105,10 +95,6 @@ def predecir(files):
     vol_cerebro = nib.load(ruta_t1ce).get_fdata().astype(np.float32)
     return resultado_np, fondo_2d, vol_cerebro
 
-
-# -----------------------------------------------------------------------------
-# Métricas cuantitativas — única fuente de verdad (tabla + features del modelo)
-# -----------------------------------------------------------------------------
 def cuadrante_dominante(mascara: np.ndarray) -> int:
     """Divide el volumen en 8 octantes y devuelve (1-8) el de mayor volumen (0 si vacío)."""
     cx, cy, cz = (d // 2 for d in mascara.shape)
@@ -134,9 +120,8 @@ def distancia_al_centro(mascara: np.ndarray) -> float:
 def calcular_metricas(resultado_np: np.ndarray, vol_cerebro: np.ndarray) -> dict:
     tc, wt, et = resultado_np[0, 0], resultado_np[0, 1], resultado_np[0, 2]
 
-    # Regiones exclusivas (misma lógica que la visualización 3D):
-    necrotico = np.clip(tc - et, 0, 1)   # NCR/NET : núcleo sin parte activa
-    edema = np.clip(wt - tc, 0, 1)       # ED      : tumor total sin núcleo
+    necrotico = np.clip(tc - et, 0, 1)
+    edema = np.clip(wt - tc, 0, 1)
 
     wt_vol = int(wt.sum())
     brain_vol = int((vol_cerebro > 0).sum())
@@ -167,10 +152,6 @@ def hacer_tabla(metricas: dict) -> pd.DataFrame:
                     metricas["brain_vol"], metricas["healthy_br_vol"]],
     })
 
-
-# -----------------------------------------------------------------------------
-# Estimación de supervivencia
-# -----------------------------------------------------------------------------
 def clasificar_supervivencia(dias: float) -> str:
     if dias <= 200:
         return "Corta (Short-survivor)"
@@ -193,10 +174,6 @@ def estimar_supervivencia(X: pd.DataFrame) -> tuple[float, str]:
     dias = float(modelo.predict(X)[0])
     return dias, clasificar_supervivencia(dias)
 
-
-# -----------------------------------------------------------------------------
-# Visualización 2D
-# -----------------------------------------------------------------------------
 def actualizar_2d(resultado_np, fondo_2d, s1, s2, s3):
     if resultado_np is None:
         return None, None, None
@@ -228,25 +205,17 @@ def actualizar_2d(resultado_np, fondo_2d, s1, s2, s3):
         hacer_corte(vol[:, :, :, s3], fondo_2d[:, :, s3]),
     )
 
-
-# -----------------------------------------------------------------------------
-# Visualización 3D
-# -----------------------------------------------------------------------------
 def actualizar_3d(resultado_np, vol_cerebro, show_tc, show_wt, show_et, show_brain):
     if resultado_np is None:
         return None
-
+    
     mascara_tc = resultado_np[0, 0]
     mascara_wt = resultado_np[0, 1]
     mascara_et = resultado_np[0, 2]
-
     edema_puro = np.clip(mascara_wt - mascara_tc, 0, 1)
     tc_puro = np.clip(mascara_tc - mascara_et, 0, 1)
-
     capas = [
-        ('cerebro', vol_cerebro,
-         [200, 200, 200, 25], show_brain,
-         float(np.percentile(vol_cerebro[vol_cerebro > 0], 30))),
+        ('cerebro', vol_cerebro,[200, 200, 200, 25], show_brain, float(np.percentile(vol_cerebro[vol_cerebro > 0], 30))),
         ('Edema', edema_puro, [50, 200, 50, 90], show_wt, 0.5),
         ('TC', tc_puro, [220, 50, 50, 180], show_tc, 0.5),
         ('ET', mascara_et, [255, 230, 0, 255], show_et, 0.5),
@@ -256,17 +225,14 @@ def actualizar_3d(resultado_np, vol_cerebro, show_tc, show_wt, show_et, show_bra
     for nombre, arr, color, activo, umbral in capas:
         if not activo:
             continue
-
         a = np.ascontiguousarray(arr.astype(np.float32))
         if a.max() < umbral:
             continue
-
         malla = Volume(a).isosurface(value=umbral)
         if nombre == "cerebro":
             malla = malla.decimate(fraction=0.01)
         if malla.npoints == 0:
             continue
-
         verts = np.array(malla.vertices)
         caras = np.array(malla.cells)
         tm = trimesh.Trimesh(vertices=verts, faces=caras, process=False)
@@ -275,15 +241,11 @@ def actualizar_3d(resultado_np, vol_cerebro, show_tc, show_wt, show_et, show_bra
 
     if not piezas:
         return None
-
+    
     ruta_glb = os.path.abspath("tumor.glb")
     trimesh.Scene(piezas).export(ruta_glb)
     return ruta_glb
 
-
-# -----------------------------------------------------------------------------
-# Interfaz
-# -----------------------------------------------------------------------------
 with gr.Blocks(title="Segmentador BraTS") as app:
     state_resultado = gr.State(value=None)
     state_fondo = gr.State(value=None)
@@ -357,7 +319,6 @@ with gr.Blocks(title="Segmentador BraTS") as app:
             outputs=[modelo_3d],
         )
 
-    # --- Estimación de supervivencia (al final de la página) --------------------
     gr.Markdown("## Estimación de supervivencia")
     edad = gr.Number(label="Edad del paciente (años)", value=60, precision=0)
     btn_superv = gr.Button("Predecir supervivencia", variant="primary")
